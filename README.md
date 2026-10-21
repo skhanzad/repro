@@ -76,6 +76,24 @@ candidates (sorted by stars), then ranks them by open issues, which include open
 `--refresh` to search again. Outputs are `data/top_repos/{repos,issues,manifest}.jsonl` and the
 clones in `data/repos/`.
 
+`scripts/watch_bugs.py` watches repos for bug reports and tracks each one until it's fixed:
+new bugs, new comments, closed and reopened, and the fixing PR or commit. By default it
+watches the pipeline's selected repos (`data/top_repos/repos.jsonl`). State is kept in
+`data/bug_tracker/` (`bugs.json` snapshot, `events.jsonl` change log, `cursor.json` per-repo
+poll times), so each poll only fetches what changed since the last one.
+
+```bash
+uv run scripts/watch_bugs.py --once                       # one poll (cron-friendly)
+uv run scripts/watch_bugs.py --interval 600               # keep polling every 10 minutes
+uv run scripts/watch_bugs.py --issue astral-sh/uv#22805   # track one specific bug
+uv run scripts/watch_bugs.py --report                     # list tracked bugs and fixes
+```
+
+A bug is any issue whose labels match `--label-pattern` (default
+`bug|defect|regression|crash`). To find a fix, the script looks for the commit that closed the
+issue, then a merged PR that references it, then a commit in the same repo that mentions it,
+which is mapped to its PR when there is one.
+
 ## Layout
 
 | File | Purpose |
