@@ -1,0 +1,5 @@
+{"id": "calc-1", "prompt": "What is (17 * 23) + 4? Answer with just the number.", "expected": "395", "grader": "exact_match"}
+{"id": "calc-2", "prompt": "What is 2 to the power of 20, divided by 4? Answer with just the number.", "expected": "262144", "grader": "exact_match"}
+{"id": "lookup-1", "prompt": "Using the lookup tool, what is the capital of France?", "expected": "Paris", "grader": "contains"}
+{"id": "multi-1", "prompt": "Look up the boiling point of water in Celsius, then multiply it by 3. Answer with just the number.", "expected": "300", "grader": "exact_match"}
+{"id": "judge-1", "prompt": "Look up the speed of light in m/s and tell me roughly how far light travels in 2 seconds.", "expected": "About 599,584,916 meters (~600,000 km)", "grader": "llm_judge"}

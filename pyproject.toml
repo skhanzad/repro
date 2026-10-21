@@ -1,0 +1,39 @@
+[project]
+name = "repro"
+version = "0.1.0"
+description = "Framework-free agentic evaluation harness built on the OpenAI SDK"
+readme = "README.md"
+authors = [
+    { name = "sourena", email = "sourena.khanzadeh@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "openai>=3.36.0",
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.1",
+    "python-dotenv>=1.2.4",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+repro = "repro:main"
+
+[build-system]
+requires = ["uv_build>=0.11.11,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
