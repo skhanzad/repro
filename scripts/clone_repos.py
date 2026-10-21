@@ -15,8 +15,10 @@ Examples:
 
 import argparse
 import asyncio
+import base64
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -28,6 +30,21 @@ def log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def git_env() -> dict[str, str]:
+    # Never block on a credentials prompt for private or deleted repos.
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    if token := os.environ.get("GITHUB_TOKEN"):
+        # Pass the token as an auth header via env-based config, so it never ends up
+        # in the clone's .git/config or in the process arguments.
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        env |= {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+            "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+        }
+    return env
+
+
 async def git(*args: str, cwd: Path | None = None, timeout: float = 1800) -> str:
     proc = await asyncio.create_subprocess_exec(
         "git",
@@ -35,8 +52,7 @@ async def git(*args: str, cwd: Path | None = None, timeout: float = 1800) -> str
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        # Never block on a credentials prompt for private or deleted repos.
-        env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+        env=git_env(),
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
@@ -50,10 +66,7 @@ async def git(*args: str, cwd: Path | None = None, timeout: float = 1800) -> str
 
 
 def clone_url(repo: dict[str, Any]) -> str:
-    url = repo.get("html_url") or f"https://github.com/{repo['full_name']}"
-    if token := os.environ.get("GITHUB_TOKEN"):
-        url = url.replace("https://", f"https://x-access-token:{token}@", 1)
-    return url + ".git"
+    return (repo.get("html_url") or f"https://github.com/{repo['full_name']}") + ".git"
 
 
 async def clone_one(repo: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
@@ -75,7 +88,12 @@ async def clone_one(repo: dict[str, Any], args: argparse.Namespace) -> dict[str,
             cmd += ["--filter=blob:none"] if args.history else ["--depth", "1"]
             if branch:
                 cmd += ["--branch", branch]
-            await git(*cmd, clone_url(repo), str(dest))
+            # Clone into a temp dir and rename when done, so an interrupted run never
+            # leaves a half-cloned repo that looks complete on the next run.
+            partial = dest.with_name(dest.name + ".partial")
+            shutil.rmtree(partial, ignore_errors=True)
+            await git(*cmd, clone_url(repo), str(partial))
+            partial.rename(dest)
             record["status"] = "cloned"
         record["commit"] = await git("rev-parse", "HEAD", cwd=dest)
         record["commit_date"] = await git("log", "-1", "--format=%cI", cwd=dest)

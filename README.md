@@ -61,6 +61,21 @@ uv run scripts/clone_repos.py --update        # bring existing clones up to date
 Use `--history` when you need the code as it was when an issue was filed
 (`git checkout <commit>`). Repos that are already cloned are skipped unless you pass `--update`.
 
+`scripts/top_repos_pipeline.py` does it all in one go: it finds the repos with the most open
+issues, scrapes their issues and clones them. Every step is cached in `data/top_repos/`, so
+rerunning (or raising `--top-n`) continues from where the last run stopped.
+
+```bash
+uv run scripts/top_repos_pipeline.py --top-n 20
+uv run scripts/top_repos_pipeline.py --top-n 50 --query "language:python stars:>1000" \
+    --pool 1000 --max-issues 200 --state closed --comments
+```
+
+GitHub search can't sort by issue count, so the script searches `--query` for up to `--pool`
+candidates (sorted by stars), then ranks them by open issues, which include open PRs. Pass
+`--refresh` to search again. Outputs are `data/top_repos/{repos,issues,manifest}.jsonl` and the
+clones in `data/repos/`.
+
 ## Layout
 
 | File | Purpose |
