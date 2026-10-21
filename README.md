@@ -94,6 +94,34 @@ A bug is any issue whose labels match `--label-pattern` (default
 issue, then a merged PR that references it, then a commit in the same repo that mentions it,
 which is mapped to its PR when there is one.
 
+### Bug classifier
+
+Labels are free, but many repos leave issues unlabelled or label them inconsistently.
+`repro.bug_classifier` decides "bug or not" in three tiers, each reached only when the
+previous one can't decide:
+
+1. **Rules** (free): labels (`bug`, `type/bug`, `enhancement`, `question`, ...) and title tags
+   (`[Bug]:`, `Feature request:`). Conflicting signals fall through.
+2. **Cheap model** (`gpt-5-nano` / `gemma4:e4b`): title + first 3000 chars of the body ->
+   category, whether it is ambiguous, and a confidence.
+3. **Escalation model** (`gpt-5-mini` by default): only when the cheap model flags the issue
+   as ambiguous or reports confidence below `REPRO_ESCALATE_BELOW`. Set
+   `REPRO_ESCALATION_MODEL=` (empty) to turn it off.
+
+Verdicts are cached by issue content, so unchanged issues are never re-classified.
+
+```bash
+uv run scripts/watch_bugs.py --classify model                         # OpenAI
+uv run scripts/watch_bugs.py --classify model --classifier-provider ollama \
+    --escalation-provider ollama --escalation-model qwen2.5-coder:14b  # fully local
+uv run scripts/eval_bug_classifier.py --limit 100                     # measure accuracy
+```
+
+`eval_bug_classifier.py` uses issues with clear labels as ground truth, hides the labels,
+and reports accuracy, precision, recall and token use for the cheap model alone and with
+escalation. Small models report high confidence even when wrong, so the ambiguity flag is
+usually the more useful escalation trigger.
+
 ## Layout
 
 | File | Purpose |
@@ -105,6 +133,7 @@ which is mapped to its PR when there is one.
 | `src/repro/runner.py` | Loads JSONL tasks, runs them concurrently, grades, summarizes, saves |
 | `src/repro/schemas.py` | `Task`, `Trajectory`, `Step`, `Grade`, `EvalResult` |
 | `src/repro/config.py` | Settings from `REPRO_*` env vars / `.env`, providers and default models |
+| `src/repro/bug_classifier.py` | Rules → cheap model → escalation cascade for "is this issue a bug?" |
 | `src/repro/llm.py` | `get_client(provider)`: one cached `AsyncOpenAI` client per provider |
 
 ## Dataset format

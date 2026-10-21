@@ -1,7 +1,7 @@
 """Watch repositories for bug reports and track each bug until it is fixed.
 
-Every poll fetches issues updated since the previous poll, keeps the ones whose labels
-match --label-pattern (plus any issue pinned with --issue), and records what changed:
+Every poll fetches issues updated since the previous poll, keeps the bug reports (plus any
+issue pinned with --issue), and records what changed:
 new bug, new comments, closed, reopened, and the fix (merged PR or closing commit).
 
 State lives in --state-dir and survives restarts:
@@ -18,6 +18,14 @@ Examples:
     uv run scripts/watch_bugs.py --interval 600                 # poll every 10 minutes
     uv run scripts/watch_bugs.py --issue astral-sh/uv#22805     # track one bug report
     uv run scripts/watch_bugs.py --report                       # print tracked bugs
+    uv run scripts/watch_bugs.py --classify model --classifier-provider ollama \
+        --escalation-provider ollama --escalation-model qwen2.5-coder:14b
+
+What counts as a bug:
+    --classify labels   label names matching --label-pattern (free, misses unlabelled bugs)
+    --classify model    label/title rules first, then a cheap model for undecided issues,
+                        escalating to a stronger model when it is unsure. Verdicts are
+                        cached in classifications.json and stored on each bug.
 """
 
 import argparse
@@ -27,11 +35,15 @@ import os
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import httpx
+import openai
 from dotenv import load_dotenv
 from scrape_github import GitHub, log, slim_issue
+
+from repro.bug_classifier import BugClassifier
+from repro.config import Provider
 
 DEFAULT_REPOS_FILE = "data/top_repos/repos.jsonl"
 
@@ -194,17 +206,23 @@ async def poll_repo(
         f"/repos/{repo}/issues",
         params={"state": "all", "since": since, "sort": "updated", "direction": "desc"},
     )
-    label_re = re.compile(args.label_pattern, re.IGNORECASE)
-    needs_fix = []
-    for item in raw:
-        if "pull_request" in item:
-            continue
-        issue = slim_issue(item, repo)
-        key = f"{repo}#{issue['number']}"
-        if key not in tracker.bugs and not any(label_re.search(lb) for lb in issue["labels"]):
-            continue
-        if tracker.update(issue):
-            needs_fix.append((repo, issue["number"]))
+    issues = [slim_issue(item, repo) for item in raw if "pull_request" not in item]
+    tracked = [i for i in issues if f"{repo}#{i['number']}" in tracker.bugs]
+    new = [i for i in issues if f"{repo}#{i['number']}" not in tracker.bugs]
+
+    if args.classify == "model":
+        # Raises on model errors so the cursor stays put and the next poll retries.
+        verdicts = await asyncio.gather(*(args.classifier.classify(i) for i in new))
+        new = [
+            {**i, "classification": v.model_dump(exclude={"tokens"})}
+            for i, v in zip(new, verdicts, strict=True)
+            if v.is_bug
+        ]
+    else:
+        label_re = re.compile(args.label_pattern, re.IGNORECASE)
+        new = [i for i in new if any(label_re.search(lb) for lb in i["labels"])]
+
+    needs_fix = [(repo, i["number"]) for i in tracked + new if tracker.update(i)]
     tracker.cursor[repo] = started
     return needs_fix
 
@@ -215,7 +233,7 @@ async def poll_once(gh: GitHub, tracker: Tracker, repos: list[str], args) -> Non
     async def safe(coro, what: str):
         try:
             return await coro
-        except httpx.HTTPError as e:
+        except (httpx.HTTPError, openai.APIError) as e:
             log(f"poll failed for {what}: {e}")
             return None
 
@@ -242,6 +260,8 @@ async def poll_once(gh: GitHub, tracker: Tracker, repos: list[str], args) -> Non
             tracker.bugs[key]["fix"] = fix
             tracker.emit(key, "fixed", by=fix["url"])
     tracker.save()
+    if args.classifier:
+        args.classifier.save_cache()
 
 
 def load_repos(args: argparse.Namespace) -> list[str]:
@@ -274,6 +294,18 @@ async def main_async(args: argparse.Namespace) -> None:
         raise SystemExit("Nothing to watch: pass owner/name, --repos-file or --issue.")
     log(f"Watching {len(repos)} repos and {len(args.issue)} pinned issues")
 
+    args.classifier = None
+    if args.classify == "model":
+        args.classifier = BugClassifier(
+            provider=args.classifier_provider,
+            model=args.classifier_model,
+            escalation_provider=args.escalation_provider,
+            escalation_model=args.escalation_model,
+            cache_path=Path(args.state_dir) / "classifications.json",
+        )
+        escalation = args.classifier.escalation_model or "off"
+        log(f"Classifying with rules -> {args.classifier.model} -> {escalation}")
+
     gh = GitHub(os.environ.get("GITHUB_TOKEN"), args.concurrency)
     if "Authorization" not in gh.client.headers:
         log("GITHUB_TOKEN not set: unauthenticated limit is 60 requests/hour")
@@ -302,6 +334,17 @@ def parse_args() -> argparse.Namespace:
         default=r"bug|defect|regression|crash",
         help="Regex matched against label names to decide what counts as a bug",
     )
+    p.add_argument(
+        "--classify",
+        default="labels",
+        choices=["labels", "model"],
+        help="labels: --label-pattern only. model: label/title rules, then a cheap model\n"
+        "for issues the rules can't decide (see repro.bug_classifier)",
+    )
+    p.add_argument("--classifier-provider", choices=get_args(Provider), default=None)
+    p.add_argument("--classifier-model", default=None, help="Default: the provider's cheap model")
+    p.add_argument("--escalation-provider", choices=get_args(Provider), default=None)
+    p.add_argument("--escalation-model", default=None, help="'' disables escalation")
     p.add_argument("--lookback-days", type=int, default=30, help="Window for a repo's first poll")
     p.add_argument("--interval", type=int, default=600, help="Seconds between polls")
     p.add_argument("--once", action="store_true", help="Poll once and exit")
