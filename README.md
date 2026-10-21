@@ -33,6 +33,22 @@ Not every model that Ollama says supports tools emits real tool calls. For examp
 `qwen2.5-coder` writes the tool-call JSON as plain text, so it never calls a tool. Check that
 `mean_tool_calls` is above zero before trusting the scores.
 
+## Scripts
+
+`scripts/scrape_github.py` collects repositories and their issues into `data/github/`
+(`repos.jsonl` and `issues.jsonl`, one issue per line; pull requests are excluded).
+
+```bash
+uv run scripts/scrape_github.py astral-sh/uv openai/openai-python --max-issues 50 --comments
+uv run scripts/scrape_github.py --search "language:python stars:>5000" --max-repos 10 \
+    --state closed --labels bug --min-body-chars 200
+```
+
+Set `GITHUB_TOKEN` in `.env` to raise the API limit from 60 to 5000 requests/hour. Without a
+token, `--comments` uses up the limit quickly, since each issue that has comments costs at least
+one request. The script waits out rate limits (up to 15 minutes) and skips repos that can't be
+fetched.
+
 ## Layout
 
 | File | Purpose |
