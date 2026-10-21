@@ -49,6 +49,18 @@ token, `--comments` uses up the limit quickly, since each issue that has comment
 one request. The script waits out rate limits (up to 15 minutes) and skips repos that can't be
 fetched.
 
+`scripts/clone_repos.py` clones every repo in `repos.jsonl` into `data/repos/<owner>__<name>`
+and writes `data/repos/manifest.jsonl` with each repo's path, branch, commit and status.
+
+```bash
+uv run scripts/clone_repos.py                 # shallow clones (latest commit only)
+uv run scripts/clone_repos.py --history       # full history, file contents fetched on demand
+uv run scripts/clone_repos.py --update        # bring existing clones up to date
+```
+
+Use `--history` when you need the code as it was when an issue was filed
+(`git checkout <commit>`). Repos that are already cloned are skipped unless you pass `--update`.
+
 ## Layout
 
 | File | Purpose |
