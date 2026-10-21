@@ -7,7 +7,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from repro.config import settings
+from repro.config import DEFAULT_MODELS, Provider, settings
 from repro.llm import get_client
 from repro.schemas import Step, ToolCallRecord, Trajectory
 from repro.tools import ToolRegistry
@@ -23,6 +23,7 @@ class Agent:
         self,
         tools: ToolRegistry,
         *,
+        provider: Provider | None = None,
         model: str | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         max_steps: int | None = None,
@@ -30,10 +31,11 @@ class Agent:
         completion_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self.tools = tools
-        self.model = model or settings.agent_model
+        self.provider = provider or settings.agent_provider
+        self.model = model or settings.agent_model or DEFAULT_MODELS[self.provider]
         self.system_prompt = system_prompt
         self.max_steps = max_steps or settings.max_steps
-        self.client = client or get_client()
+        self.client = client or get_client(self.provider)
         self.completion_kwargs = completion_kwargs or {}
 
     async def run(self, prompt: str, task_id: str = "adhoc") -> Trajectory:

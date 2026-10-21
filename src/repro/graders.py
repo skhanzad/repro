@@ -68,8 +68,8 @@ Minor formatting differences are fine; factual or numerical differences are not.
 
 @grader("llm_judge")
 async def llm_judge(task: Task, traj: Trajectory) -> Grade:
-    response = await get_client().chat.completions.parse(
-        model=settings.judge_model,
+    response = await get_client(settings.judge_provider).chat.completions.parse(
+        model=settings.resolved_judge_model(),
         messages=[
             {
                 "role": "user",

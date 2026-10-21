@@ -1,12 +1,13 @@
 import argparse
 import asyncio
+from typing import get_args
 
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
 from repro.agent import Agent
-from repro.config import settings
+from repro.config import Provider, settings
 from repro.example_tools import registry
 from repro.runner import load_tasks, run_eval, save_results, summarize
 from repro.schemas import EvalResult
@@ -26,9 +27,15 @@ async def _run(args: argparse.Namespace) -> None:
     tasks = load_tasks(args.dataset)
     if args.limit:
         tasks = tasks[: args.limit]
-    agent = Agent(registry, model=args.model, max_steps=args.max_steps)
+    if args.judge_provider:
+        settings.judge_provider = args.judge_provider
+    if args.judge_model:
+        settings.judge_model = args.judge_model
+    agent = Agent(registry, provider=args.provider, model=args.model, max_steps=args.max_steps)
 
-    console.print(f"Running [bold]{len(tasks)}[/] tasks with [bold]{agent.model}[/]")
+    console.print(
+        f"Running [bold]{len(tasks)}[/] tasks with [bold]{agent.provider}/{agent.model}[/]"
+    )
     results = await run_eval(agent, tasks, concurrency=args.concurrency, on_result=_print_result)
 
     summary = summarize(results)
@@ -48,7 +55,10 @@ def main() -> None:
 
     run = sub.add_parser("run", help="Run an eval over a JSONL dataset")
     run.add_argument("dataset", help="Path to a JSONL file of tasks")
-    run.add_argument("--model", default=settings.agent_model)
+    run.add_argument("--provider", choices=get_args(Provider), default=None)
+    run.add_argument("--model", default=None, help="Defaults to the provider's default model")
+    run.add_argument("--judge-provider", choices=get_args(Provider), default=None)
+    run.add_argument("--judge-model", default=None)
     run.add_argument("--max-steps", type=int, default=settings.max_steps)
     run.add_argument("--concurrency", type=int, default=settings.concurrency)
     run.add_argument("--limit", type=int, default=None)

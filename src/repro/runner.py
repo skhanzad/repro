@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -51,7 +52,7 @@ def summarize(results: list[EvalResult]) -> dict:
 
 
 def save_results(results: list[EvalResult], summary: dict, model: str) -> Path:
-    run_name = f"{datetime.now():%Y%m%d-%H%M%S}-{model.replace('/', '_')}"
+    run_name = f"{datetime.now():%Y%m%d-%H%M%S}-{re.sub(r'[/:]', '_', model)}"
     run_dir = Path(settings.results_dir) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "results.jsonl", "w") as f:
