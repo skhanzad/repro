@@ -122,6 +122,38 @@ and reports accuracy, precision, recall and token use for the cheap model alone 
 escalation. Small models report high confidence even when wrong, so the ambiguity flag is
 usually the more useful escalation trigger.
 
+## Bug reproduction agent
+
+`scripts/run_repro_agent.py` gives the agent a bug report plus the repo as it was just before
+the fix. The agent must write a pytest test that reproduces the bug. The loop runs on the
+host, because it calls the model API. Every tool call runs in a sandbox.
+
+- **Tools:** `search_code`, `read_file`, `write_test` (new `test_*.py` / `*_test.py` files
+  only; it can't change existing files or write outside the repo) and `run_pytest`.
+  Tool output is clipped, and every command has a timeout.
+- **Limits:** `--max-steps`, `--max-cost` (USD, from `MODEL_PRICES` in `config.py`) and
+  `--max-tokens` per task. These are checked after each model call, so a run can go over by
+  at most one call. Models not in the price table have no cost limit, only the token limit.
+- **Sandbox (`--sandbox docker`):** `--network=none`, `--cap-drop=ALL`,
+  `no-new-privileges`, a non-root user, memory/CPU/process limits, and no environment
+  variables from the host. The repo is copied in, never mounted. Each repo's dependencies
+  are installed once into an image, and that build is the only step with network access.
+- **Grading ("fail to pass"):** in fresh sandboxes, the test must fail with an assertion on
+  the buggy commit (not with an import or collection error) and pass on the fix commit.
+- **What the agent sees:** only the issue title and body, never the comments or the fixing
+  PR, which could give the answer away.
+
+```bash
+uv run scripts/run_repro_agent.py --limit 5 --model gpt-5-mini --max-cost 0.25
+uv run scripts/run_repro_agent.py --issue NousResearch/hermes-agent#46310
+uv run scripts/run_repro_agent.py --tasks tasks.jsonl --sandbox local-unsafe --provider ollama
+```
+
+Tasks come from `data/bug_tracker/bugs.json` (Python repos with a known fix) or from a JSONL
+file of `{repo, number, title, body, clone_path, fix_commit}`. `--sandbox local-unsafe` runs
+tools on the host with a scrubbed environment but **no isolation**. It's for development
+without Docker only.
+
 ## Layout
 
 | File | Purpose |
@@ -134,6 +166,8 @@ usually the more useful escalation trigger.
 | `src/repro/schemas.py` | `Task`, `Trajectory`, `Step`, `Grade`, `EvalResult` |
 | `src/repro/config.py` | Settings from `REPRO_*` env vars / `.env`, providers and default models |
 | `src/repro/bug_classifier.py` | Rules → cheap model → escalation cascade for "is this issue a bug?" |
+| `src/repro/bug_repro.py` | Bug-repro task: sandboxed tools, limits, fail-to-pass grading |
+| `src/repro/sandbox.py` | `DockerSandbox` (isolated), per-repo dependency images, `LocalSandbox` (dev only) |
 | `src/repro/llm.py` | `get_client(provider)`: one cached `AsyncOpenAI` client per provider |
 
 ## Dataset format

@@ -40,7 +40,8 @@ class Trajectory(BaseModel):
     steps: list[Step] = Field(default_factory=list)
     messages: list[dict[str, Any]] = Field(default_factory=list)
     final_answer: str | None = None
-    stop_reason: Literal["final_answer", "max_steps", "error"] = "final_answer"
+    stop_reason: Literal["final_answer", "max_steps", "budget", "error"] = "final_answer"
+    cost_usd: float | None = None  # None when the model's price is unknown
     error: str | None = None
 
     @property
